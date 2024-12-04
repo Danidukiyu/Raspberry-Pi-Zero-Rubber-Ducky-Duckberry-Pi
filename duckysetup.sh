@@ -1,48 +1,71 @@
 #!/bin/bash
+
+# Ensure script is run as root
 if [ $EUID -ne 0 ]; then
-	echo "You must use sudo to run this script:"
-	echo "sudo $0 $@"
-	exit
+    echo "You must use sudo to run this script:"
+    echo "sudo $0 $@"
+    exit 1
 fi
+
+# Update system and install necessary tools
 apt-get update
 apt-get upgrade -y
-apt-get install rpi-update
-BRANCH=next rpi-update c053625
+apt-get install -y rpi-update git wget build-essential
 
-## dwc2 drivers
-sed -i -e "\$adtoverlay=dwc2" /boot/config.txt
+# Install necessary dependencies
+apt-get install -y libusb-1.0-0-dev
 
-##Install git and download rspiducky
-wget --no-check-certificate https://raw.githubusercontent.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/master/LICENSE https://raw.githubusercontent.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/master/duckpi.sh https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/g_hid.ko https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/hid-gadget-test https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/hid-gadget-test.c https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/readme.md https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/usleep https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/usleep.c
+# Update firmware (be cautious with rpi-update)
+BRANCH=stable rpi-update
 
-##Make all nessisary files executeable
+# Enable USB OTG (dwc2) support in /boot/config.txt
+echo "dtoverlay=dwc2" >> /boot/config.txt
+
+# Create directory for USB gadget configuration
+mkdir -p /etc/systemd/system/duckpi.service
+
+# Download necessary scripts and files
 cd /home/pi
-chmod 755 hid-gadget-test.c duckpi.sh usleep.c g_hid.ko usleep hid-gadget-test
+wget --no-check-certificate https://raw.githubusercontent.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/master/LICENSE
+wget --no-check-certificate https://raw.githubusercontent.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/master/duckpi.sh
+wget --no-check-certificate https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/usleep
+wget --no-check-certificate https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/usleep.c
+wget --no-check-certificate https://github.com/ossiozac/Raspberry-Pi-Zero-Rubber-Ducky-Duckberry-Pi/raw/master/hid-gadget-test
 
-\cp g_hid.ko /lib/modules/4.4.0+/kernel/drivers/usb/gadget/legacy
+# Make downloaded files executable
+chmod +x /home/pi/duckpi.sh /home/pi/usleep /home/pi/hid-gadget-test
 
-cat <<'EOF'>>/etc/modules
-dwc2
-g_hid
+# Install USB gadget modules and enable them on boot
+echo "dwc2" >> /etc/modules
+echo "g_hid" >> /etc/modules
+
+# Create systemd service to launch the payload
+cat <<EOF > /etc/systemd/system/duckpi.service
+[Unit]
+Description=USB HID Payload Service
+After=multi-user.target
+
+[Service]
+ExecStart=/home/pi/duckpi.sh /home/pi/payload.dd
+WorkingDirectory=/home/pi
+Type=simple
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
-##Make it so that you can put the payload.dd in the /boot directory
-sed -i '/exit/d' /etc/rc.local
+# Enable the systemd service to start on boot
+systemctl enable duckpi.service
 
-cat <<'EOF'>>/etc/rc.local
-sleep 3
-cat /boot/payload.dd > /home/pi/payload.dd
-sleep 1
-tr -d '\r' < /home/pi/payload.dd > /home/pi/payload2.dd
-sleep 1
-/home/pi/duckpi.sh /home/pi/payload2.dd
-exit 0
-EOF
-
-##Making the first payload
-cat <<'EOF'>>/boot/payload.dd
+# Create a default payload to simulate keystrokes (e.g., open a website)
+cat <<EOF > /boot/payload.dd
 GUI r
 DELAY 50
 STRING www.youtube.com/watch?v=dQw4w9WgXcQ
 ENTER
 EOF
+
+# Final output
+echo "Setup complete. Reboot your Raspberry Pi to apply changes."
+echo "You can change the payload in /boot/payload.dd to simulate different keystrokes."
+
